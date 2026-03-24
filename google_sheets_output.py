@@ -1,6 +1,7 @@
 """
 Google Sheets Output Module
 Writes prospect data to Google Sheets for easy viewing/editing.
+Uses Service Account with pre-shared spreadsheet access.
 """
 
 import os
@@ -9,135 +10,54 @@ from datetime import datetime
 from pathlib import Path
 
 # Google Sheets API imports
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # ── Configuration ────────────────────────────────────────────────────────────
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-CREDENTIALS_FILE = Path(__file__).parent / "credentials" / "google-sheets-credentials.json"
-TOKEN_FILE = Path(__file__).parent / "credentials" / "google-sheets-token.json"
+SERVICE_ACCOUNT_FILE = Path(__file__).parent / "credentials" / "service-account.json"
+
+# Default spreadsheet ID (shared via Drive permissions)
+DEFAULT_SPREADSHEET_ID = "1T5CKzf1NFibpW3DGN9vTbRXHhgo9Obn7pusT1KX79b8"
 
 
 class GoogleSheetsOutput:
     """Write pipeline output to Google Sheets."""
     
     def __init__(self, spreadsheet_id: str = None):
-        self.spreadsheet_id = spreadsheet_id
+        self.spreadsheet_id = spreadsheet_id or DEFAULT_SPREADSHEET_ID
         self.service = None
         self._authenticate()
     
     def _authenticate(self):
-        """Authenticate with Google Sheets API."""
-        creds = None
+        """Authenticate with Google Sheets API via Service Account."""
         
-        # Load existing token
-        if TOKEN_FILE.exists():
-            creds = Credentials.from_authorized_user_info(
-                json.loads(TOKEN_FILE.read_text()), SCOPES
-            )
-        
-        # If no valid credentials, run OAuth flow
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            elif CREDENTIALS_FILE.exists():
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    str(CREDENTIALS_FILE), SCOPES
-                )
-                creds = flow.run_local_server(port=8080)
-            else:
-                print("❌ No Google Sheets credentials found.")
-                print("   1. Go to https://console.cloud.google.com/apis/credentials")
-                print("   2. Create OAuth 2.0 Client ID (Desktop app)")
-                print("   3. Download as credentials.json → place in pipeline/credentials/")
-                return
-            
-            # Save token for future use
-            TOKEN_FILE.write_text(json.dumps(json.loads(creds.to_json())))
-        
-        self.service = build("sheets", "v4", credentials=creds)
-        print("✅ Authenticated with Google Sheets API")
-    
-    def create_spreadsheet(self, title: str = "Prospects Pipeline Output") -> str:
-        """Create new spreadsheet and return its ID."""
-        spreadsheet = {
-            "properties": {"title": title},
-            "sheets": [
-                {
-                    "properties": {"title": "Prospects"},
-                    "data": [self._prospects_grid()],
-                },
-                {
-                    "properties": {"title": "Outreach"},
-                    "data": [self._outreach_grid()],
-                },
-            ],
-        }
-        
-        spreadsheet = self.service.spreadsheets().create(
-            body=spreadsheet, fields="spreadsheetId"
-        ).execute()
-        
-        self.spreadsheet_id = spreadsheet.get("spreadsheetId")
-        print(f"✅ Created spreadsheet: https://docs.google.com/spreadsheets/d/{self.spreadsheet_id}")
-        return self.spreadsheet_id
-    
-    def _prospects_grid(self) -> dict:
-        """Define Prospects sheet grid."""
-        return {
-            "startRow": 1,
-            "startColumn": 1,
-            "rowData": [
-                {
-                    "values": [
-                        {"userEnteredValue": {"stringValue": "Business Name"}},
-                        {"userEnteredValue": {"stringValue": "Location"}},
-                        {"userEnteredValue": {"stringValue": "Industry"}},
-                        {"userEnteredValue": {"stringValue": "Contact Name"}},
-                        {"userEnteredValue": {"stringValue": "Contact Title"}},
-                        {"userEnteredValue": {"stringValue": "Email"}},
-                        {"userEnteredValue": {"stringValue": "Phone"}},
-                        {"userEnteredValue": {"stringValue": "LinkedIn"}},
-                        {"userEnteredValue": {"stringValue": "Website"}},
-                        {"userEnteredValue": {"stringValue": "Has Facebook"}},
-                        {"userEnteredValue": {"stringValue": "Has Instagram"}},
-                        {"userEnteredValue": {"stringValue": "Has LinkedIn"}},
-                        {"userEnteredValue": {"stringValue": "Source"}},
-                        {"userEnteredValue": {"stringValue": "Discovered At"}},
-                    ]
-                }
-            ],
-        }
-    
-    def _outreach_grid(self) -> dict:
-        """Define Outreach sheet grid."""
-        return {
-            "startRow": 1,
-            "startColumn": 1,
-            "rowData": [
-                {
-                    "values": [
-                        {"userEnteredValue": {"stringValue": "To Name"}},
-                        {"userEnteredValue": {"stringValue": "To Email"}},
-                        {"userEnteredValue": {"stringValue": "Subject"}},
-                        {"userEnteredValue": {"stringValue": "Body"}},
-                        {"userEnteredValue": {"stringValue": "Offer Type"}},
-                        {"userEnteredValue": {"stringValue": "Status"}},
-                    ]
-                }
-            ],
-        }
-    
-    def write_prospects(self, prospects: list):
-        """Write prospects data to sheet."""
-        if not self.service or not self.spreadsheet_id:
-            print("❌ Not connected to Google Sheets")
+        if not SERVICE_ACCOUNT_FILE.exists():
+            print("No Service Account credentials found.")
             return
         
-        rows = []
+        credentials = service_account.Credentials.from_service_account_file(
+            str(SERVICE_ACCOUNT_FILE), scopes=SCOPES
+        )
+        
+        self.service = build("sheets", "v4", credentials=credentials)
+        print("Authenticated with Google Sheets API")
+    
+    def write_prospects(self, prospects: list, sheet_name: str = "Prospects"):
+        """Write prospects data to sheet."""
+        if not self.service or not self.spreadsheet_id:
+            print("Not connected to Google Sheets")
+            return
+        
+        # Build header row
+        headers = [
+            "Business Name", "Location", "Industry", "Contact Name", 
+            "Contact Title", "Email", "Phone", "LinkedIn", "Website",
+            "Has Facebook", "Has Instagram", "Has LinkedIn", "Source", "Discovered At"
+        ]
+        
+        rows = [headers]
         for p in prospects:
             contacts = p.get("contacts", [{}])
             contact = contacts[0] if contacts else {}
@@ -162,22 +82,31 @@ class GoogleSheetsOutput:
         
         body = {"values": rows}
         
-        self.service.spreadsheets().values().append(
+        # Clear existing data and write new
+        self.service.spreadsheets().values().clear(
             spreadsheetId=self.spreadsheet_id,
-            range="Prospects!A2",
-            valueInputOption="USER_ENTERED",
-            body=body,
+            range=f"{sheet_name}!A:Z"
         ).execute()
         
-        print(f"✅ Wrote {len(rows)} prospects to Google Sheets")
+        self.service.spreadsheets().values().update(
+            spreadsheetId=self.spreadsheet_id,
+            range=f"{sheet_name}!A1",
+            valueInputOption="USER_ENTERED",
+            body=body
+        ).execute()
+        
+        print(f"Wrote {len(rows)} rows to {sheet_name}")
     
-    def write_outreach(self, outreach: list):
+    def write_outreach(self, outreach: list, sheet_name: str = "Outreach"):
         """Write outreach emails to sheet."""
         if not self.service or not self.spreadsheet_id:
-            print("❌ Not connected to Google Sheets")
+            print("Not connected to Google Sheets")
             return
         
-        rows = []
+        # Build header row
+        headers = ["To Name", "To Email", "Subject", "Body", "Offer Type", "Status"]
+        
+        rows = [headers]
         for o in outreach:
             rows.append([
                 o.get("to_name", ""),
@@ -185,19 +114,25 @@ class GoogleSheetsOutput:
                 o.get("subject", ""),
                 o.get("body", ""),
                 o.get("offer_type", ""),
-                "Pending",
+                "Pending"
             ])
         
         body = {"values": rows}
         
-        self.service.spreadsheets().values().append(
+        # Clear and write
+        self.service.spreadsheets().values().clear(
             spreadsheetId=self.spreadsheet_id,
-            range="Outreach!A2",
-            valueInputOption="USER_ENTERED",
-            body=body,
+            range=f"{sheet_name}!A:Z"
         ).execute()
         
-        print(f"✅ Wrote {len(rows)} outreach emails to Google Sheets")
+        self.service.spreadsheets().values().update(
+            spreadsheetId=self.spreadsheet_id,
+            range=f"{sheet_name}!A1",
+            valueInputOption="USER_ENTERED",
+            body=body
+        ).execute()
+        
+        print(f"Wrote {len(rows)} rows to {sheet_name}")
     
     def get_spreadsheet_url(self) -> str:
         """Return shareable URL."""
@@ -210,5 +145,14 @@ class GoogleSheetsOutput:
 if __name__ == "__main__":
     gs = GoogleSheetsOutput()
     if gs.service:
-        spreadsheet_id = gs.create_spreadsheet("Prospects Pipeline Test")
-        print(f"📊 Spreadsheet URL: {gs.get_spreadsheet_url()}")
+        print(f"URL: {gs.get_spreadsheet_url()}")
+        
+        # Test write
+        gs.write_prospects([{
+            "name": "Test Business",
+            "location": "Brooklyn, NY",
+            "industry": "Plumbing",
+            "contacts": [{"name": "John", "title": "Owner", "email": "john@test.com"}],
+            "platform_scan": {"has_facebook": True, "has_website": False},
+            "source": "test"
+        }])

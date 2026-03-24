@@ -516,7 +516,6 @@ def run_pipeline(
     try:
         print("\n[6/6] 📊 Writing to Google Sheets...")
         gs = GoogleSheetsOutput()
-        spreadsheet_id = gs.create_spreadsheet(f"Prospects - {industry} {location}")
         gs.write_prospects(enriched)
         gs.write_outreach(outreach)
         sheets_url = gs.get_spreadsheet_url()
