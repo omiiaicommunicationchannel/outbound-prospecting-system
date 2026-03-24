@@ -23,6 +23,9 @@ import requests
 from pathlib import Path
 from datetime import datetime
 
+# Local modules
+from google_sheets_output import GoogleSheetsOutput
+
 # ── Configuration ────────────────────────────────────────────────────────────
 CONFIG = {
     "output_dir": "./output",
@@ -509,10 +512,24 @@ def run_pipeline(
     print(f"📁 Outreach: {outreach_file}")
     print(f"📊 Summary: {len(enriched)} businesses → {len(outreach)} emails ready")
     
+    # Write to Google Sheets
+    try:
+        print("\n[6/6] 📊 Writing to Google Sheets...")
+        gs = GoogleSheetsOutput()
+        spreadsheet_id = gs.create_spreadsheet(f"Prospects - {industry} {location}")
+        gs.write_prospects(enriched)
+        gs.write_outreach(outreach)
+        sheets_url = gs.get_spreadsheet_url()
+        print(f"📊 Google Sheets: {sheets_url}")
+    except Exception as e:
+        print(f"⚠️ Google Sheets write failed: {e}")
+        sheets_url = None
+    
     return {
         "icp": icp,
         "businesses": enriched,
         "outreach": outreach,
+        "sheets_url": sheets_url,
     }
 
 
