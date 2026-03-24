@@ -82,15 +82,19 @@ class GoogleSheetsOutput:
         
         body = {"values": rows}
         
-        # Clear existing data and write new
-        self.service.spreadsheets().values().clear(
-            spreadsheetId=self.spreadsheet_id,
-            range=f"{sheet_name}!A:Z"
-        ).execute()
+        # Clear existing data and write new (use Sheet1 as default)
+        sheet_range = f"{sheet_name}!A:Z"
+        try:
+            self.service.spreadsheets().values().clear(
+                spreadsheetId=self.spreadsheet_id,
+                range=sheet_range
+            ).execute()
+        except:
+            pass  # Sheet may not exist
         
         self.service.spreadsheets().values().update(
             spreadsheetId=self.spreadsheet_id,
-            range=f"{sheet_name}!A1",
+            range="Sheet1!A1",
             valueInputOption="USER_ENTERED",
             body=body
         ).execute()
@@ -119,15 +123,18 @@ class GoogleSheetsOutput:
         
         body = {"values": rows}
         
-        # Clear and write
-        self.service.spreadsheets().values().clear(
-            spreadsheetId=self.spreadsheet_id,
-            range=f"{sheet_name}!A:Z"
-        ).execute()
+        # Clear and write to Sheet1 (default)
+        try:
+            self.service.spreadsheets().values().clear(
+                spreadsheetId=self.spreadsheet_id,
+                range="Sheet1!A:Z"
+            ).execute()
+        except:
+            pass
         
         self.service.spreadsheets().values().update(
             spreadsheetId=self.spreadsheet_id,
-            range=f"{sheet_name}!A1",
+            range="Sheet1!A1",
             valueInputOption="USER_ENTERED",
             body=body
         ).execute()
